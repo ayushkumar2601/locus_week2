@@ -2,6 +2,8 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import adminRoutes from "./adminRoutes";
+import nlpDeploymentRoutes from "./nlpDeploymentAPI";
+import githubWebhookRoutes from "./githubWebhook";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { setupTerminalWebSocket } from "./terminal";
@@ -26,6 +28,8 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 
 app.use("/api/admin", adminRoutes);
+app.use("/api/nlp", nlpDeploymentRoutes);
+app.use("/api/github", githubWebhookRoutes);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
