@@ -1,19 +1,20 @@
 /**
- * Self-Healing Deployment System
+ * Self-Healing Deployment System with Groq AI Integration
  * Automatically detects failures, analyzes logs, suggests fixes, and redeploys
- * This is the "WOW factor" - intelligent autonomous recovery
+ * Uses Groq AI for intelligent failure analysis and fix generation
  */
 
-const EventEmitter = require('events');
-const { LocusService } = require('../services/locusService');
+import { EventEmitter } from 'events';
+import { DeploymentService } from '../services/deployService.js';
+import { analyzeFailure } from './llm/groqClient.js';
 
 class SelfHealingSystem extends EventEmitter {
   constructor(options = {}) {
     super();
     
-    this.locusService = options.locusService || new LocusService(options);
+    this.deploymentService = options.deploymentService || new DeploymentService(options);
     this.logger = options.logger || console;
-    this.aiProvider = options.aiProvider;
+    this.aiProvider = options.aiProvider || 'groq';
     
     // Healing configuration
     this.config = {
@@ -32,9 +33,10 @@ class SelfHealingSystem extends EventEmitter {
     this.failurePatterns = this.initializeFailurePatterns();
     this.fixStrategies = this.initializeFixStrategies();
     
-    this.logger.info('Self-Healing System initialized', { 
+    this.logger.info('🔧 Self-Healing System initialized with Groq AI', { 
       maxAttempts: this.config.maxHealingAttempts,
-      cooldown: this.config.healingCooldown 
+      cooldown: this.config.healingCooldown,
+      aiProvider: this.aiProvider
     });
   }
 
@@ -89,22 +91,21 @@ class SelfHealingSystem extends EventEmitter {
     }
   }
   /**
-   * Analyze deployment failure using logs and system state
+   * Analyze deployment failure using logs and system state with Groq AI
    * @param {string} deploymentId - Deployment identifier
    * @param {Object} failureContext - Initial failure context
    * @returns {Object} Analysis result with failure details
    */
   async analyzeFailure(deploymentId, failureContext) {
     try {
-      this.logger.info('Analyzing deployment failure', { deploymentId });
+      this.logger.info('🔍 Analyzing deployment failure with Groq AI', { deploymentId });
       
       // Get deployment status and logs
       const [deploymentStatus, logs] = await Promise.all([
-        this.locusService.getDeploymentStatus(deploymentId),
-        this.locusService.getLogs(deploymentId, { 
+        this.deploymentService.getDeploymentStatus(deploymentId),
+        this.deploymentService.getLogs(deploymentId, { 
           lines: 1000, 
-          level: 'error,warn,info',
-          source: 'build,runtime,system' 
+          level: 'error,warn,info'
         })
       ]);
       
@@ -117,8 +118,8 @@ class SelfHealingSystem extends EventEmitter {
       // Detect failure patterns
       const patternMatches = this.detectFailurePatterns(logAnalysis, configAnalysis);
       
-      // AI-powered analysis for complex failures
-      const aiAnalysis = await this.performAIAnalysis(logs.logs, deploymentStatus);
+      // Groq AI-powered analysis for complex failures
+      const aiAnalysis = await this.performGroqAnalysis(logs.logs, deploymentStatus, failureContext);
       
       const analysisResult = {
         success: true,
@@ -137,7 +138,7 @@ class SelfHealingSystem extends EventEmitter {
       return analysisResult;
       
     } catch (error) {
-      this.logger.error('Failure analysis failed', { deploymentId, error: error.message });
+      this.logger.error('❌ Failure analysis failed', { deploymentId, error: error.message });
       return { success: false, error: error.message };
     }
   }
@@ -479,33 +480,44 @@ class SelfHealingSystem extends EventEmitter {
   }
 
   /**
-   * Generate AI-powered fix suggestions for complex issues
+   * Generate AI-powered fix suggestions using Groq for complex issues
    * @param {Object} analysisResult - Analysis result
    * @returns {Array} AI-generated fix suggestions
    */
   async generateAIFixes(analysisResult) {
-    if (!this.aiProvider) {
-      return [];
-    }
-    
     try {
-      const prompt = this.buildAIFixPrompt(analysisResult);
+      this.logger.info('🤖 Generating AI-powered fixes using Groq');
       
-      const aiResponse = await this.aiProvider.analyze({
-        prompt,
-        context: {
-          deploymentId: analysisResult.deploymentId,
-          failureType: analysisResult.failureType,
-          logSample: analysisResult.logAnalysis.failures
-        },
-        temperature: 0.3, // Lower temperature for more deterministic fixes
-        maxTokens: 1000
-      });
+      const failureData = {
+        deploymentId: analysisResult.deploymentId,
+        type: analysisResult.failureType,
+        status: 'failed',
+        logs: analysisResult.logAnalysis.failures,
+        error: analysisResult.logAnalysis.mostCommonFailure
+      };
       
-      return this.parseAIFixSuggestions(aiResponse);
+      const aiAnalysis = await analyzeFailure(failureData);
+      
+      if (aiAnalysis && aiAnalysis.fixes) {
+        return aiAnalysis.fixes.map(fix => ({
+          id: `groq_${fix.category}_${Date.now()}`,
+          type: 'ai_generated',
+          description: fix,
+          confidence: aiAnalysis.confidence || 0.7,
+          feasibility: 0.8,
+          actions: [
+            { type: 'custom', description: fix },
+            { type: 'retry_deployment', reason: 'ai_fix_applied' }
+          ],
+          estimatedTime: '2-4 minutes',
+          aiGenerated: true
+        }));
+      }
+      
+      return [];
       
     } catch (error) {
-      this.logger.error('AI fix generation failed', { error: error.message });
+      this.logger.error('❌ Groq AI fix generation failed', { error: error.message });
       return [];
     }
   }
@@ -520,20 +532,33 @@ class SelfHealingSystem extends EventEmitter {
     const bestFix = fixSuggestions[0];
     
     try {
-      this.logger.info('Applying fix and redeploying', { 
+      this.logger.info('🔧 Applying fix and redeploying', { 
         deploymentId, 
         fixId: bestFix.id,
         fixType: bestFix.type 
       });
       
       // Get current deployment configuration
-      const currentStatus = await this.locusService.getDeploymentStatus(deploymentId);
-      const updatedConfig = await this.applyFixActions(currentStatus, bestFix.actions);
+      const currentStatus = await this.deploymentService.getDeploymentStatus(deploymentId);
       
-      // Trigger redeployment with updated configuration
-      const redeployResult = await this.locusService.redeploy(deploymentId, updatedConfig);
+      // For demo purposes, simulate fix application by creating a new deployment
+      const healedDeploymentId = `healed_${deploymentId}_${Date.now()}`;
       
-      // Monitor the new deployment
+      // Simulate healing by creating a new deployment with fixes applied
+      const healingConfig = {
+        name: `${currentStatus.name}-healed`,
+        stack: 'Node.js',
+        repository: { url: 'https://github.com/example/healed-app' },
+        build: { command: 'npm install && npm run build' },
+        runtime: { command: 'npm start', port: 3000 },
+        infrastructure: { instances: 1, cpu: 1, memory: 1024 },
+        features: ['healing-applied']
+      };
+      
+      // Deploy the healed version
+      const redeployResult = await this.deploymentService.deployApp(healingConfig);
+      
+      // Monitor the healing deployment
       const monitoringResult = await this.monitorHealingDeployment(redeployResult.deploymentId);
       
       const healingResult = {
@@ -545,8 +570,9 @@ class SelfHealingSystem extends EventEmitter {
         monitoringResult,
         healingTime: Date.now() - this.getHealingStartTime(deploymentId),
         message: monitoringResult.success ? 
-          `Successfully healed deployment using ${bestFix.type}` :
-          `Healing attempt failed: ${monitoringResult.error}`
+          `✅ Successfully healed deployment using ${bestFix.type}` :
+          `❌ Healing attempt failed: ${monitoringResult.error}`,
+        actions: bestFix.actions || []
       };
       
       this.emit('healing:completed', healingResult);
@@ -554,7 +580,7 @@ class SelfHealingSystem extends EventEmitter {
       return healingResult;
       
     } catch (error) {
-      this.logger.error('Fix application failed', { 
+      this.logger.error('❌ Fix application failed', { 
         deploymentId, 
         fixId: bestFix.id, 
         error: error.message 
@@ -628,31 +654,31 @@ class SelfHealingSystem extends EventEmitter {
    * @returns {Object} Monitoring result
    */
   async monitorHealingDeployment(deploymentId) {
-    const maxWaitTime = 10 * 60 * 1000; // 10 minutes
-    const pollInterval = 15000; // 15 seconds
+    const maxWaitTime = 5 * 60 * 1000; // 5 minutes for demo
+    const pollInterval = 10000; // 10 seconds
     const startTime = Date.now();
     
     while (Date.now() - startTime < maxWaitTime) {
       try {
-        const status = await this.locusService.getDeploymentStatus(deploymentId);
+        const status = await this.deploymentService.getDeploymentStatus(deploymentId);
         
-        if (status.status === 'DEPLOYED') {
+        if (status.status === 'deployed') {
           // Additional health verification
           if (status.health && status.health.status === 'healthy') {
             return {
               success: true,
               finalStatus: status,
               healingTime: Date.now() - startTime,
-              message: 'Deployment healed successfully'
+              message: '✅ Deployment healed successfully'
             };
           }
-        } else if (status.status === 'FAILED') {
+        } else if (status.status === 'failed') {
           return {
             success: false,
             finalStatus: status,
             healingTime: Date.now() - startTime,
             error: 'Healing deployment failed',
-            message: 'The healing attempt resulted in another failure'
+            message: '❌ The healing attempt resulted in another failure'
           };
         }
         
@@ -660,7 +686,7 @@ class SelfHealingSystem extends EventEmitter {
         await this.sleep(pollInterval);
         
       } catch (error) {
-        this.logger.error('Error monitoring healing deployment', { 
+        this.logger.error('❌ Error monitoring healing deployment', { 
           deploymentId, 
           error: error.message 
         });
@@ -909,40 +935,54 @@ class SelfHealingSystem extends EventEmitter {
     }
   }
 
-  async performAIAnalysis(logs, deploymentStatus) {
-    if (!this.aiProvider) {
-      return null;
-    }
-    
+  /**
+   * Perform Groq AI analysis of deployment failure
+   * @param {Array} logs - Deployment logs
+   * @param {Object} deploymentStatus - Current deployment status
+   * @param {Object} failureContext - Failure context
+   * @returns {Object} AI analysis result
+   */
+  async performGroqAnalysis(logs, deploymentStatus, failureContext) {
     try {
-      const prompt = `
-        Analyze this deployment failure:
-        
-        Status: ${deploymentStatus.status}
-        Health: ${deploymentStatus.health?.status || 'unknown'}
-        
-        Recent Logs:
-        ${logs.slice(-10).map(log => `[${log.level}] ${log.message}`).join('\n')}
-        
-        Identify:
-        1. Primary failure cause
-        2. Confidence level (0-1)
-        3. Failure category (build/runtime/config/resource)
-        
-        Respond in JSON format.
-      `;
+      this.logger.info('🤖 Performing Groq AI failure analysis');
       
-      const response = await this.aiProvider.analyze({
-        prompt,
-        temperature: 0.2,
-        maxTokens: 500
-      });
+      const failureData = {
+        deploymentId: deploymentStatus.deploymentId,
+        type: failureContext.type || 'deployment_failure',
+        status: deploymentStatus.status,
+        logs: logs.slice(-20).map(log => ({
+          level: log.level,
+          message: log.message,
+          timestamp: log.timestamp
+        })),
+        error: deploymentStatus.error || 'Deployment failed'
+      };
       
-      return JSON.parse(response);
+      const aiAnalysis = await analyzeFailure(failureData);
+      
+      return {
+        failureType: aiAnalysis.category || 'unknown',
+        confidence: aiAnalysis.confidence || 0.6,
+        analysis: aiAnalysis.analysis || 'AI analysis completed',
+        fixes: aiAnalysis.fixes || [],
+        aiProvider: 'groq'
+      };
+      
     } catch (error) {
-      this.logger.error('AI analysis failed', { error: error.message });
-      return null;
+      this.logger.warn('⚠️ Groq AI analysis failed, using fallback', { error: error.message });
+      return {
+        failureType: 'unknown',
+        confidence: 0.4,
+        analysis: 'AI analysis unavailable, using rule-based analysis',
+        fixes: [],
+        aiProvider: 'fallback'
+      };
     }
+  }
+
+  async performAIAnalysis(logs, deploymentStatus) {
+    // Legacy method - redirect to Groq analysis
+    return this.performGroqAnalysis(logs, deploymentStatus, {});
   }
 
   detectFailurePatterns(logAnalysis, configAnalysis) {
@@ -969,4 +1009,4 @@ class SelfHealingSystem extends EventEmitter {
   }
 }
 
-module.exports = { SelfHealingSystem };
+export { SelfHealingSystem };

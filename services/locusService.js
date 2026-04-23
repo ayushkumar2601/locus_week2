@@ -4,8 +4,12 @@
  * Handles deployments, monitoring, scaling, and log management
  */
 
-const axios = require('axios');
-const EventEmitter = require('events');
+import dotenv from 'dotenv';
+import axios from 'axios';
+import { EventEmitter } from 'events';
+
+// Load environment variables
+dotenv.config();
 
 class LocusService extends EventEmitter {
   constructor(options = {}) {
@@ -791,10 +795,10 @@ class LocusServiceError extends Error {
   }
 }
 
-module.exports = { LocusService, LocusServiceError };
+export { LocusService, LocusServiceError };
 
 // Example usage
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   const locusService = new LocusService({
     apiKey: process.env.LOCUS_API_KEY,
     logger: console

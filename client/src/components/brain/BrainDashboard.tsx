@@ -8,6 +8,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Progress } from '../ui/progress';
+import { AgentThinkingPanel } from './AgentThinkingPanel';
 import { 
   Brain, 
   Play, 
@@ -219,7 +220,15 @@ export function BrainDashboard() {
           <Brain className="h-8 w-8 text-blue-600" />
           <div>
             <h1 className="text-2xl font-bold">Agent Brain Dashboard</h1>
-            <p className="text-gray-600">Central Intelligence System Monitoring</p>
+            <div className="flex items-center space-x-2">
+              <p className="text-gray-600">Central Intelligence System Monitoring</p>
+              <Badge variant="outline" className="text-xs">
+                🤖 Groq AI Powered
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                Demo Mode
+              </Badge>
+            </div>
           </div>
         </div>
         
@@ -309,9 +318,12 @@ export function BrainDashboard() {
           <CardTitle className="flex items-center space-x-2">
             <RotateCcw className="h-5 w-5" />
             <span>Cognitive Cycle</span>
+            <Badge variant="outline" className="text-xs ml-2">
+              AI-Powered
+            </Badge>
           </CardTitle>
           <CardDescription>
-            The continuous observe → think → decide → act → reflect loop
+            The continuous observe → think → decide → act → reflect loop powered by Groq AI
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -416,12 +428,20 @@ export function BrainDashboard() {
         </Card>
       )}
 
+      {/* Agent Thinking Panel */}
+      <AgentThinkingPanel />
+
       {/* Testing Controls */}
       <Card>
         <CardHeader>
-          <CardTitle>Testing Controls</CardTitle>
+          <CardTitle className="flex items-center space-x-2">
+            <span>Demo Controls</span>
+            <Badge variant="secondary" className="text-xs">
+              Professional Demo
+            </Badge>
+          </CardTitle>
           <CardDescription>
-            Simulate system events to test brain responses
+            Simulate system events to demonstrate AI-powered autonomous responses
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -431,22 +451,35 @@ export function BrainDashboard() {
               size="sm"
               onClick={() => simulateInput('nlp', 'Deploy a MERN app with authentication')}
             >
-              Simulate NLP Request
+              🚀 Simulate Deployment Request
             </Button>
             <Button 
               variant="outline" 
               size="sm"
               onClick={() => simulateInput('github', 'Push event from repository')}
             >
-              Simulate GitHub Event
+              📦 Simulate GitHub Event
             </Button>
             <Button 
               variant="outline" 
               size="sm"
               onClick={() => simulateInput('error', 'Critical deployment failure detected')}
             >
-              Simulate Error
+              🔧 Simulate Self-Healing
             </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => simulateInput('scaling', 'High traffic detected, scaling needed')}
+            >
+              📈 Simulate Auto-Scaling
+            </Button>
+          </div>
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-sm text-blue-800">
+              <strong>Demo Mode:</strong> This system demonstrates professional deployment automation 
+              with Groq AI reasoning. All deployments are simulated with realistic logs and lifecycle management.
+            </p>
           </div>
         </CardContent>
       </Card>

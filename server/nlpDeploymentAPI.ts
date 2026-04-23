@@ -3,12 +3,27 @@
  * REST API endpoints for conversational deployment interface
  */
 
+import dotenv from 'dotenv';
 import express from 'express';
-import { ConversationalDeployment } from '../agent/conversationalDeployment';
+import { ConversationalDeployment } from '../agent/conversationalDeployment.js';
+import { SystemOrchestrator } from '../agent/orchestrator.js';
 import { body, param, query, validationResult } from 'express-validator';
 import rateLimit from 'express-rate-limit';
 
+// Load environment variables
+dotenv.config();
+
 const router = express.Router();
+
+// Initialize System Orchestrator (central brain)
+const systemOrchestrator = SystemOrchestrator.getInstance({
+  locusApiKey: process.env.LOCUS_API_KEY,
+  locusApiUrl: process.env.LOCUS_API_URL,
+  logger: console
+});
+
+// Start the autonomous system
+systemOrchestrator.startSystem().catch(console.error);
 
 // Initialize conversational deployment system
 const conversationalDeployment = new ConversationalDeployment({
@@ -33,7 +48,7 @@ const nlpRateLimit = rateLimit({
 
 /**
  * POST /api/nlp/deploy
- * Process natural language deployment request
+ * Process natural language deployment request through Agent Brain
  */
 router.post('/deploy',
   nlpRateLimit,
@@ -75,53 +90,103 @@ router.post('/deploy',
         ip: req.ip
       };
 
-      // Process the deployment request
-      const response = await conversationalDeployment.processDeploymentRequest(
-        message,
-        enrichedContext
-      );
-
-      // Format response based on type
-      if (response.type === 'clarification') {
-        return res.json({
-          success: true,
-          type: 'clarification',
-          message: response.message,
-          questions: response.questions,
-          conversationId: response.conversationId,
-          parsedConfig: response.parsedConfig,
-          confidence: response.parsedConfig?.metadata?.confidence
+      console.log('🧠 Processing request through System Orchestrator:', message);
+      
+      // CRITICAL FIX: Route through System Orchestrator instead of direct deployment
+      try {
+        // Parse the natural language request
+        const parsedConfig = await conversationalDeployment.nlpParser.parseDeploymentRequest(
+          message,
+          enrichedContext
+        );
+        
+        console.log('✅ NLP parsing successful:', {
+          stack: parsedConfig.stack,
+          confidence: parsedConfig.metadata.confidence
         });
-      }
-
-      if (response.type === 'deployment') {
+        
+        // Process through System Orchestrator (includes Brain)
+        const deploymentResult = await systemOrchestrator.processDeploymentRequest({
+          message,
+          parsedConfig,
+          context: enrichedContext,
+          name: parsedConfig.name,
+          repository: enrichedContext.repository || {
+            url: 'https://github.com/example/app'
+          },
+          environment: enrichedContext.environment || 'production'
+        });
+        
+        console.log('✅ System Orchestrator processing successful:', {
+          planId: deploymentResult.planId,
+          deploymentId: deploymentResult.deploymentId
+        });
+        
         return res.json({
           success: true,
           type: 'deployment',
-          message: response.message,
-          deploymentId: response.deploymentResult?.deploymentId,
-          estimatedTime: response.estimatedTime,
-          conversationId: response.conversationId,
-          parsedConfig: response.parsedConfig,
-          endpoints: response.deploymentResult?.endpoints || []
+          message: `Deployment initiated successfully through Agent Brain`,
+          deploymentId: deploymentResult.deploymentId,
+          planId: deploymentResult.planId,
+          estimatedTime: deploymentResult.estimatedTime,
+          conversationId: conversationId || `conv_${Date.now()}`,
+          parsedConfig: {
+            stack: parsedConfig.stack,
+            backend: parsedConfig.backend,
+            database: parsedConfig.database?.type,
+            features: parsedConfig.features,
+            confidence: parsedConfig.metadata.confidence
+          },
+          endpoints: deploymentResult.endpoints || [],
+          brainProcessing: true,
+          systemOrchestrated: true
         });
-      }
-
-      if (response.type === 'error') {
-        return res.status(400).json({
+        
+      } catch (processingError) {
+        console.error('❌ System processing failed:', processingError);
+        
+        // Fallback to conversational deployment for response formatting
+        const response = await conversationalDeployment.processDeploymentRequest(
+          message,
+          enrichedContext
+        );
+        
+        // Format response based on type
+        if (response.type === 'clarification') {
+          return res.json({
+            success: true,
+            type: 'clarification',
+            message: response.message,
+            questions: response.questions,
+            conversationId: response.conversationId,
+            parsedConfig: response.parsedConfig,
+            confidence: response.parsedConfig?.metadata?.confidence,
+            brainProcessing: true,
+            fallbackMode: true
+          });
+        }
+        
+        if (response.type === 'error') {
+          return res.status(400).json({
+            success: false,
+            type: 'error',
+            message: response.message,
+            suggestions: response.suggestions,
+            conversationId: response.conversationId,
+            brainProcessing: true,
+            fallbackMode: true
+          });
+        }
+        
+        // Default error response
+        return res.status(500).json({
           success: false,
-          type: 'error',
-          message: response.message,
-          suggestions: response.suggestions,
-          conversationId: response.conversationId
+          error: 'Processing failed',
+          message: processingError.message,
+          brainProcessing: true,
+          fallbackMode: true
         });
       }
-
-      // Fallback response
-      return res.json({
-        success: true,
-        response
-      });
 
     } catch (error) {
       console.error('NLP deployment request failed:', error);

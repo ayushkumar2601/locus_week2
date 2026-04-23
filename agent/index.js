@@ -29,7 +29,8 @@ class AgentOrchestrator extends EventEmitter {
     this.planner = new PlannerAgent({
       aiProvider: this.config.aiProvider,
       apiKeys: this.config.apiKeys,
-      logger: this.logger
+      logger: this.logger,
+      memory: this.brain?.memory // Pass memory system to planner
     });
 
     this.deployer = new DeployerAgent({

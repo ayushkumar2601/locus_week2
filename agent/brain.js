@@ -14,16 +14,25 @@ class AgentBrain extends EventEmitter {
     super();
     this.logger = options.logger || console;
     this.isRunning = false;
-    this.loopInterval = options.loopInterval || 5000; // 5 seconds
-    this.maxConcurrentActions = options.maxConcurrentActions || 3;
+    this.loopInterval = options.loopInterval || parseInt(process.env.AGENT_LOOP_INTERVAL) || 5000;
+    this.maxConcurrentActions = options.maxConcurrentActions || parseInt(process.env.MAX_CONCURRENT_ACTIONS) || 3;
     
-    // Initialize system components (injected via options)
-    this.orchestrator = options.orchestrator;
+    // Initialize system components with proper dependency injection
+    this.planner = options.planner;
+    this.deployer = options.deployer;
+    this.analyzer = options.analyzer;
+    this.monitor = options.monitor;
+    this.selfHealer = options.selfHealer;
+    
+    // Initialize NLP and conversational components
     this.nlpParser = new NLPDeploymentParser(options);
     this.conversationalDeployment = new ConversationalDeployment(options);
-    this.memory = new AgentMemory({ logger: this.logger });
+    this.persistentMemory = new AgentMemory({ logger: this.logger });
     
-    // Memory and state management
+    // AI provider configuration
+    this.aiProvider = process.env.AI_PROVIDER || options.aiProvider || 'groq';
+    
+    // Memory and state management (separate from persistent memory)
     this.memory = {
       observations: [],
       thoughts: [],
@@ -42,10 +51,11 @@ class AgentBrain extends EventEmitter {
       activeActions: new Set()
     };
     
-    // AI provider for thinking
-    this.aiProvider = options.aiProvider;
-    
-    this.logger.info('🧠 Agent Brain initialized - Central Intelligence System ready');
+    this.logger.info('🧠 Agent Brain initialized - Central Intelligence System ready', {
+      aiProvider: this.aiProvider,
+      loopInterval: this.loopInterval,
+      maxConcurrentActions: this.maxConcurrentActions
+    });
   }
 
   /**
@@ -171,23 +181,38 @@ class AgentBrain extends EventEmitter {
    */
   async observeDeployments() {
     try {
-      if (!this.orchestrator) {
-        return []; // Return empty array if no orchestrator
+      // Use monitor agent if available, otherwise return empty array
+      if (this.monitor && typeof this.monitor.listActiveDeployments === 'function') {
+        const activeDeployments = await this.monitor.listActiveDeployments();
+        const deploymentStates = [];
+        
+        for (const deployment of activeDeployments) {
+          const status = await this.monitor.getDeploymentStatus(deployment.id);
+          deploymentStates.push({
+            id: deployment.id,
+            name: deployment.name,
+            status: status.status,
+            health: status.health,
+            lastUpdate: status.lastUpdate,
+            errors: status.errors || [],
+            metrics: status.metrics || {}
+          });
+        }
+        
+        return deploymentStates;
       }
       
-      const activeDeployments = this.orchestrator.listActiveDeployments();
+      // Fallback: check system state deployments
       const deploymentStates = [];
-      
-      for (const deployment of activeDeployments) {
-        const status = await this.orchestrator.getDeploymentStatus(deployment.id);
+      for (const [id, deployment] of this.systemState.deployments) {
         deploymentStates.push({
-          id: deployment.id,
-          name: deployment.name,
-          status: status.status,
-          health: status.health,
-          lastUpdate: status.lastUpdate,
-          errors: status.errors || [],
-          metrics: status.metrics || {}
+          id,
+          name: deployment.name || id,
+          status: deployment.status || 'unknown',
+          health: deployment.health || 'unknown',
+          lastUpdate: deployment.lastUpdate || Date.now(),
+          errors: deployment.errors || [],
+          metrics: deployment.metrics || {}
         });
       }
       
@@ -293,18 +318,40 @@ class AgentBrain extends EventEmitter {
     };
   }
   /**
-   * THINK: Process observation with AI reasoning
+   * THINK: Process observation with AI reasoning using Groq
    */
   async think(observation) {
     const thinkingStart = Date.now();
     
     try {
       let reasoning = [];
+      let confidence = 0.7;
+      let priority = 'medium';
       
-      // Use AI provider if available, otherwise use rule-based reasoning
-      if (this.aiProvider) {
-        reasoning = await this.aiThinking(observation);
+      // Use Groq AI for intelligent reasoning
+      if (this.aiProvider === 'groq') {
+        try {
+          const { generateDeploymentReasoning } = await import('./llm/groqClient.js');
+          const aiReasoning = await generateDeploymentReasoning(observation);
+          
+          reasoning = aiReasoning.reasoning;
+          confidence = aiReasoning.confidence;
+          priority = aiReasoning.priority;
+          
+          this.logger.info('🤖 Groq AI reasoning generated:', {
+            steps: reasoning.length,
+            confidence: (confidence * 100).toFixed(0) + '%',
+            priority
+          });
+          
+        } catch (groqError) {
+          this.logger.warn('Groq AI reasoning failed, falling back to rule-based:', groqError.message);
+          const fallbackReasoning = await this.ruleBasedThinking(observation);
+          reasoning = fallbackReasoning;
+          confidence = 0.6;
+        }
       } else {
+        // Fallback to rule-based reasoning
         reasoning = await this.ruleBasedThinking(observation);
       }
       
@@ -312,16 +359,18 @@ class AgentBrain extends EventEmitter {
         timestamp: Date.now(),
         observation: observation.timestamp,
         reasoning,
-        confidence: this.calculateConfidence(reasoning, observation),
-        priority: this.calculatePriority(reasoning, observation),
-        thinkingTime: Date.now() - thinkingStart
+        confidence,
+        priority,
+        thinkingTime: Date.now() - thinkingStart,
+        aiProvider: this.aiProvider || 'rule-based'
       };
       
       // Store thought in memory
       this.addToMemory('thoughts', thought);
       
-      // Emit thinking log
-      this.emitThinkingLog('THINK', `${reasoning[0] || 'Processing system state'} (confidence: ${(thought.confidence * 100).toFixed(0)}%)`);
+      // Emit thinking log with dynamic reasoning
+      const reasoningPreview = reasoning[0] || 'Processing system state';
+      this.emitThinkingLog('THINK', `${reasoningPreview} (confidence: ${(confidence * 100).toFixed(0)}%, priority: ${priority})`);
       
       // Emit thinking event
       this.emit('brain:thought', thought);
@@ -329,7 +378,8 @@ class AgentBrain extends EventEmitter {
         reasoningSteps: reasoning.length,
         confidence: thought.confidence,
         priority: thought.priority,
-        thinkingTime: thought.thinkingTime
+        thinkingTime: thought.thinkingTime,
+        aiProvider: thought.aiProvider
       });
       
       return thought;
@@ -342,7 +392,8 @@ class AgentBrain extends EventEmitter {
         reasoning: [`Error in thinking process: ${error.message}`],
         confidence: 0.1,
         priority: 'low',
-        error: error.message
+        error: error.message,
+        aiProvider: 'error'
       };
     }
   }
@@ -861,21 +912,29 @@ Format as JSON array of reasoning strings.
     for (const deployment of failedDeployments) {
       try {
         // Use self-healing agent if available
-        if (this.orchestrator.selfHealer) {
-          const healingResult = await this.orchestrator.selfHealer.healDeployment(deployment.id);
+        if (this.selfHealer && typeof this.selfHealer.healDeployment === 'function') {
+          const healingResult = await this.selfHealer.healDeployment(deployment.id);
           healingResults.push({
             deploymentId: deployment.id,
             status: healingResult.success ? 'healed' : 'failed',
-            actions: healingResult.actions
+            actions: healingResult.actions || ['healing_attempted']
           });
         } else {
-          // Fallback to basic retry
-          await this.orchestrator.retryDeployment(deployment.id);
-          healingResults.push({
-            deploymentId: deployment.id,
-            status: 'retried',
-            actions: ['retry']
-          });
+          // Fallback to basic retry using deployer
+          if (this.deployer && typeof this.deployer.rollback === 'function') {
+            await this.deployer.rollback(deployment.id);
+            healingResults.push({
+              deploymentId: deployment.id,
+              status: 'retried',
+              actions: ['rollback']
+            });
+          } else {
+            healingResults.push({
+              deploymentId: deployment.id,
+              status: 'no_healing_available',
+              actions: []
+            });
+          }
         }
       } catch (error) {
         healingResults.push({
@@ -896,19 +955,45 @@ Format as JSON array of reasoning strings.
    * Monitor deployment queue for bottlenecks
    */
   async monitorDeploymentQueue() {
-    const queueStatus = await this.orchestrator.getQueueStatus();
-    
-    if (queueStatus.pending > 5) {
-      // Scale up processing if possible
-      await this.orchestrator.scaleProcessing();
+    try {
+      // Use monitor agent if available
+      if (this.monitor && typeof this.monitor.getQueueStatus === 'function') {
+        const queueStatus = await this.monitor.getQueueStatus();
+        
+        if (queueStatus.pending > 5) {
+          // Scale up processing if possible
+          if (typeof this.monitor.scaleProcessing === 'function') {
+            await this.monitor.scaleProcessing();
+          }
+        }
+        
+        return {
+          queueLength: queueStatus.pending,
+          processing: queueStatus.processing,
+          completed: queueStatus.completed,
+          action: queueStatus.pending > 5 ? 'scaled_up' : 'monitored'
+        };
+      }
+      
+      // Fallback: basic queue monitoring
+      const activeActions = this.systemState.activeActions.size;
+      const userInputs = this.systemState.userInputs.length;
+      
+      return {
+        queueLength: userInputs,
+        processing: activeActions,
+        completed: 0,
+        action: 'monitored'
+      };
+    } catch (error) {
+      this.logger.error('Queue monitoring failed:', error.message);
+      return {
+        queueLength: 0,
+        processing: 0,
+        completed: 0,
+        action: 'error'
+      };
     }
-    
-    return {
-      queueLength: queueStatus.pending,
-      processing: queueStatus.processing,
-      completed: queueStatus.completed,
-      action: queueStatus.pending > 5 ? 'scaled_up' : 'monitored'
-    };
   }
 
   /**
@@ -920,13 +1005,23 @@ Format as JSON array of reasoning strings.
     
     for (const error of criticalErrors) {
       try {
-        // Attempt automated error resolution
-        const resolution = await this.orchestrator.resolveError(error);
-        handledErrors.push({
-          errorId: error.id,
-          status: 'resolved',
-          resolution: resolution.action
-        });
+        // Attempt automated error resolution using analyzer
+        if (this.analyzer && typeof this.analyzer.resolveError === 'function') {
+          const resolution = await this.analyzer.resolveError(error);
+          handledErrors.push({
+            errorId: error.id,
+            status: 'resolved',
+            resolution: resolution.action
+          });
+        } else {
+          // Fallback: log and escalate
+          this.logger.error('Critical error requires manual intervention:', error);
+          handledErrors.push({
+            errorId: error.id,
+            status: 'escalated',
+            resolution: 'manual_intervention_required'
+          });
+        }
       } catch (resolutionError) {
         handledErrors.push({
           errorId: error.id,
@@ -964,29 +1059,43 @@ Format as JSON array of reasoning strings.
    */
   async processNLPRequests() {
     const nlpInputs = this.systemState.userInputs.filter(
-      i => i.type === 'nlp' && !i.processed
+      i => i.type === 'nlp_deployment_request' && !i.processed
     );
     
     const processedRequests = [];
     
     for (const input of nlpInputs.slice(0, 3)) { // Process up to 3 at a time
       try {
-        const response = await this.conversationalDeployment.processDeploymentRequest(
-          input.message,
-          input.context
-        );
-        
-        processedRequests.push({
-          inputId: input.id,
-          status: 'processed',
-          response: response.type
-        });
+        // Use planner to create and execute deployment plan
+        if (this.planner) {
+          const plan = await this.planner.plan(input.parsedConfig);
+          const deploymentResult = await this.planner.executePlan(plan, {
+            name: input.parsedConfig.name,
+            repository: input.context.repository,
+            environment: input.context.environment || 'production'
+          });
+          
+          processedRequests.push({
+            inputId: input.id || Date.now(),
+            status: 'deployed',
+            planId: plan.id,
+            deploymentId: deploymentResult.deploymentId,
+            response: 'deployment_initiated'
+          });
+        } else {
+          // Fallback processing
+          processedRequests.push({
+            inputId: input.id || Date.now(),
+            status: 'processed',
+            response: 'nlp_parsed'
+          });
+        }
         
         input.processed = true;
         
       } catch (error) {
         processedRequests.push({
-          inputId: input.id,
+          inputId: input.id || Date.now(),
           status: 'error',
           error: error.message
         });
@@ -1011,14 +1120,22 @@ Format as JSON array of reasoning strings.
     
     for (const event of githubEvents.slice(0, 5)) { // Process up to 5 at a time
       try {
-        // Process through GitHub webhook handler
-        const result = await this.orchestrator.processGitHubEvent(event.data);
-        
-        processedEvents.push({
-          eventId: event.id,
-          status: 'processed',
-          result: result.status
-        });
+        // Process through GitHub webhook handler if available
+        if (this.planner && typeof this.planner.processGitHubEvent === 'function') {
+          const result = await this.planner.processGitHubEvent(event.data);
+          processedEvents.push({
+            eventId: event.id,
+            status: 'processed',
+            result: result.status
+          });
+        } else {
+          // Fallback: basic event processing
+          processedEvents.push({
+            eventId: event.id,
+            status: 'acknowledged',
+            result: 'basic_processing'
+          });
+        }
         
         event.processed = true;
         
@@ -1066,7 +1183,10 @@ Format as JSON array of reasoning strings.
    */
   async performHealthCheck() {
     const healthChecks = {
-      orchestrator: await this.checkOrchestratorHealth(),
+      planner: await this.checkPlannerHealth(),
+      deployer: await this.checkDeployerHealth(),
+      analyzer: await this.checkAnalyzerHealth(),
+      monitor: await this.checkMonitorHealth(),
       nlpParser: await this.checkNLPHealth(),
       memory: this.checkMemoryHealth(),
       activeActions: this.systemState.activeActions.size
@@ -1131,6 +1251,9 @@ Format as JSON array of reasoning strings.
       
       // Store reflection in memory
       this.addToMemory('reflections', reflection);
+      
+      // Update persistent memory with learning
+      await this.updatePersistentMemory(cycle, reflection);
       
       // Update system state based on learning
       await this.applyLearning(reflection.learning);
@@ -1415,8 +1538,20 @@ Format as JSON array of reasoning strings.
     return [];
   }
 
-  async checkOrchestratorHealth() {
-    return { status: 'healthy' };
+  async checkPlannerHealth() {
+    return this.planner ? { status: 'healthy' } : { status: 'missing' };
+  }
+
+  async checkDeployerHealth() {
+    return this.deployer ? { status: 'healthy' } : { status: 'missing' };
+  }
+
+  async checkAnalyzerHealth() {
+    return this.analyzer ? { status: 'healthy' } : { status: 'missing' };
+  }
+
+  async checkMonitorHealth() {
+    return this.monitor ? { status: 'healthy' } : { status: 'missing' };
   }
 
   async checkNLPHealth() {
@@ -1446,6 +1581,73 @@ Format as JSON array of reasoning strings.
   adjustActionPriorities(insight, direction) {
     // Placeholder - would adjust internal action priority weights
     this.logger.debug(`Adjusting action priorities based on learning: ${insight.insight}`);
+  }
+
+  /**
+   * Update persistent memory with cycle results
+   */
+  async updatePersistentMemory(cycle, reflection) {
+    if (!this.persistentMemory) return;
+
+    try {
+      // Extract deployment information from cycle
+      const deploymentInfo = this.extractDeploymentInfo(cycle);
+      
+      if (deploymentInfo.repoId) {
+        const memoryUpdate = {
+          deployment: {
+            success: reflection.outcomes.successRate > 0.5,
+            timestamp: Date.now(),
+            cycleTime: reflection.performance.cycleTime,
+            actions: cycle.result.results.map(r => r.action)
+          }
+        };
+
+        // Add errors if any
+        if (reflection.outcomes.successRate < 1.0) {
+          memoryUpdate.errors = cycle.result.results
+            .filter(r => !r.success)
+            .map(r => ({
+              message: `Action ${r.action} failed`,
+              type: 'action_failure'
+            }));
+        }
+
+        // Add fixes if any
+        if (reflection.learning.length > 0) {
+          memoryUpdate.fixes = reflection.learning
+            .filter(l => l.type === 'success_pattern')
+            .map(l => ({
+              description: l.insight,
+              effective: true
+            }));
+        }
+
+        // Update persistent memory
+        this.persistentMemory.updateMemory(deploymentInfo.repoId, memoryUpdate);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to update persistent memory:', error.message);
+    }
+  }
+
+  /**
+   * Extract deployment information from cycle
+   */
+  extractDeploymentInfo(cycle) {
+    // Try to extract repo information from observations or decisions
+    let repoId = null;
+    
+    // Look for deployment-related actions
+    const deploymentActions = cycle.result.results.filter(r => 
+      r.action.includes('deploy') || r.action.includes('heal')
+    );
+    
+    if (deploymentActions.length > 0) {
+      repoId = `deployment_${Date.now()}`;
+    }
+
+    return { repoId };
   }
 
   /**
