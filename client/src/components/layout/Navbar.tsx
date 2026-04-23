@@ -35,43 +35,45 @@ export default function Navbar() {
     <header
       className={`fixed top-0 left-0 w-full z-50 transition-all duration-300 ${
         scrolled
-          ? "bg-background/80 backdrop-blur-md border-b border-border/30"
+          ? "bg-background/90 backdrop-blur-sm border-b border-primary/20"
           : "bg-transparent border-none"
       }`}
     >
       <div className="container mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center">
-          <span className="font-bold text-xl tracking-tighter">Flocus</span>
+          <span className="font-mono text-xl tracking-widest font-bold text-primary">
+            FLOCUS
+          </span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-8">
-          <Link href="/#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-            Features
+        <nav className="hidden md:flex items-center gap-12">
+          <Link href="/#modules" className="text-sm font-mono tracking-wider text-muted-foreground hover:text-primary transition-colors uppercase">
+            MODULES
           </Link>
-          <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-            Docs
+          <Link href="/system" className="text-sm font-mono tracking-wider text-muted-foreground hover:text-primary transition-colors uppercase">
+            SYSTEM
           </Link>
-          <Link href="/workspace" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-            Deploy
+          <Link href="/workspace" className="text-sm font-mono tracking-wider text-muted-foreground hover:text-primary transition-colors uppercase">
+            DEPLOY
           </Link>
         </nav>
 
         <div className="flex items-center gap-4">
           <ThemeToggle />
           <Link href="/auth">
-            <Button variant="ghost" className="hidden sm:inline-flex text-sm">
-              Sign In
+            <Button variant="ghost" className="hidden sm:inline-flex text-sm font-mono tracking-wider uppercase">
+              ACCESS
             </Button>
           </Link>
           <Link href="/workspace">
-            <Button className="bg-primary text-primary-foreground hover:bg-primary/90 border border-border/20 hover:border-border/40 transition-all duration-200">
-              Start Deployment
+            <Button className="bg-transparent border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200 font-mono tracking-wider uppercase cyber-glow-hover">
+              INITIATE DEPLOYMENT
             </Button>
           </Link>
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="md:hidden border border-primary/30 hover:border-primary"
             onClick={() => setMobileMenuOpen((prev) => !prev)}
             aria-label="Toggle mobile menu"
           >
@@ -81,35 +83,35 @@ export default function Navbar() {
       </div>
 
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-border/30 bg-background/95 backdrop-blur-md">
-          <div className="container mx-auto px-6 py-4 flex flex-col gap-3 text-sm">
+        <div className="md:hidden border-t border-primary/20 bg-background/95 backdrop-blur-sm">
+          <div className="container mx-auto px-6 py-4 flex flex-col gap-4 text-sm font-mono">
             <Link 
-              href="/#features" 
-              className="py-2 text-muted-foreground hover:text-foreground transition-colors" 
+              href="/#modules" 
+              className="py-2 text-muted-foreground hover:text-primary transition-colors tracking-wider uppercase" 
               onClick={() => setMobileMenuOpen(false)}
             >
-              Features
+              MODULES
             </Link>
             <Link 
-              href="/docs" 
-              className="py-2 text-muted-foreground hover:text-foreground transition-colors" 
+              href="/system" 
+              className="py-2 text-muted-foreground hover:text-primary transition-colors tracking-wider uppercase" 
               onClick={() => setMobileMenuOpen(false)}
             >
-              Docs
+              SYSTEM
             </Link>
             <Link 
               href="/workspace" 
-              className="py-2 text-muted-foreground hover:text-foreground transition-colors" 
+              className="py-2 text-muted-foreground hover:text-primary transition-colors tracking-wider uppercase" 
               onClick={() => setMobileMenuOpen(false)}
             >
-              Deploy
+              DEPLOY
             </Link>
             <Link 
               href="/auth" 
-              className="py-2 text-muted-foreground hover:text-foreground transition-colors" 
+              className="py-2 text-muted-foreground hover:text-primary transition-colors tracking-wider uppercase" 
               onClick={() => setMobileMenuOpen(false)}
             >
-              Sign In
+              ACCESS
             </Link>
           </div>
         </div>
