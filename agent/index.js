@@ -1,13 +1,15 @@
 /**
  * Agent Layer - Main orchestrator for the autonomous deployment system
  * Coordinates all agents and provides a unified interface
+ * Integrates with the central Agent Brain for intelligent coordination
  */
 
-const { PlannerAgent, PlannerError } = require('./planner');
-const { DeployerAgent, DeployerError } = require('./deployer');
-const { AnalyzerAgent, AnalyzerError } = require('./analyzer');
-const { MonitorAgent, MonitorError } = require('./monitor');
-const EventEmitter = require('events');
+import { PlannerAgent, PlannerError } from './planner.js';
+import { DeployerAgent, DeployerError } from './deployer.js';
+import { AnalyzerAgent, AnalyzerError } from './analyzer.js';
+import { MonitorAgent, MonitorError } from './monitor.js';
+import { AgentBrain } from './brain.js';
+import { EventEmitter } from 'events';
 
 class AgentOrchestrator extends EventEmitter {
   constructor(options = {}) {
@@ -19,6 +21,7 @@ class AgentOrchestrator extends EventEmitter {
       locusApiKey: options.locusApiKey || process.env.LOCUS_API_KEY,
       locusApiUrl: options.locusApiUrl || process.env.LOCUS_API_URL,
       autoRecovery: options.autoRecovery !== false,
+      enableBrain: options.enableBrain !== false, // Enable brain by default
       ...options
     };
 
@@ -51,11 +54,73 @@ class AgentOrchestrator extends EventEmitter {
       logger: this.logger
     });
 
+    // Initialize Agent Brain if enabled
+    if (this.config.enableBrain) {
+      this.brain = new AgentBrain({
+        ...this.config,
+        orchestrator: this, // Inject orchestrator to avoid circular dependency
+        logger: this.logger
+      });
+      
+      this.logger.info('🧠 Agent Brain initialized - Central intelligence active');
+    }
+
     // Set up event forwarding
     this.setupEventForwarding();
 
     // Track active deployments
     this.activeDeployments = new Map();
+    
+    // Start brain if enabled
+    if (this.brain && this.config.autoStartBrain !== false) {
+      this.startBrain();
+    }
+  }
+
+  /**
+   * Start the Agent Brain
+   */
+  async startBrain() {
+    if (this.brain && !this.brain.isRunning) {
+      await this.brain.startAgentLoop();
+      this.logger.info('🧠 Agent Brain started - Autonomous intelligence active');
+    }
+  }
+
+  /**
+   * Stop the Agent Brain
+   */
+  async stopBrain() {
+    if (this.brain && this.brain.isRunning) {
+      await this.brain.stopAgentLoop();
+      this.logger.info('🧠 Agent Brain stopped');
+    }
+  }
+
+  /**
+   * Get brain status and metrics
+   */
+  getBrainStatus() {
+    if (!this.brain) {
+      return { enabled: false, status: 'disabled' };
+    }
+    
+    return {
+      enabled: true,
+      running: this.brain.isRunning,
+      memory: {
+        observations: this.brain.memory.observations.length,
+        thoughts: this.brain.memory.thoughts.length,
+        decisions: this.brain.memory.decisions.length,
+        actions: this.brain.memory.actions.length,
+        reflections: this.brain.memory.reflections.length
+      },
+      systemState: {
+        deployments: this.brain.systemState.deployments.size,
+        errors: this.brain.systemState.errors.length,
+        activeActions: this.brain.systemState.activeActions.size
+      }
+    };
   }
 
   /**
@@ -409,7 +474,7 @@ class AgentOrchestrationError extends Error {
 }
 
 // Export all agents and orchestrator
-module.exports = {
+export {
   AgentOrchestrator,
   PlannerAgent,
   DeployerAgent,
@@ -424,7 +489,7 @@ module.exports = {
 };
 
 // Example usage
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   const orchestrator = new AgentOrchestrator({
     apiKeys: {
       openai: process.env.OPENAI_API_KEY

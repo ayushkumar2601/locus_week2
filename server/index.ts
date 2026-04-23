@@ -4,9 +4,11 @@ import { registerRoutes } from "./routes";
 import adminRoutes from "./adminRoutes";
 import nlpDeploymentRoutes from "./nlpDeploymentAPI";
 import githubWebhookRoutes from "./githubWebhook";
+import brainAPIRoutes, { initializeBrainAPI } from "./brainAPI";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { setupTerminalWebSocket } from "./terminal";
+import { AgentOrchestrator } from "../agent/index.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -30,6 +32,7 @@ app.use(express.urlencoded({ extended: false }));
 app.use("/api/admin", adminRoutes);
 app.use("/api/nlp", nlpDeploymentRoutes);
 app.use("/api/github", githubWebhookRoutes);
+app.use("/api/brain", brainAPIRoutes);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -94,6 +97,24 @@ app.use((req, res, next) => {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
+
+  // Initialize Agent Brain
+  const orchestrator = new AgentOrchestrator({
+    logger: console,
+    enableBrain: true,
+    autoStartBrain: false, // Don't auto-start, let API control it
+    locusApiKey: process.env.LOCUS_API_KEY,
+    locusApiUrl: process.env.LOCUS_API_URL,
+    aiProvider: 'openai',
+    apiKeys: {
+      openai: process.env.OPENAI_API_KEY
+    }
+  });
+
+  // Initialize brain API with orchestrator
+  initializeBrainAPI(orchestrator);
+  
+  log('🧠 Agent Brain initialized and ready for API control');
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

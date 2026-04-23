@@ -4,9 +4,8 @@
  * Makes the system feel like talking to an AI DevOps engineer
  */
 
-const EventEmitter = require('events');
-const { NLPDeploymentParser } = require('./nlpDeploymentParser');
-const { AgentOrchestrator } = require('./index');
+import { EventEmitter } from 'events';
+import { NLPDeploymentParser } from './nlpDeploymentParser.js';
 
 class ConversationalDeployment extends EventEmitter {
   constructor(options = {}) {
@@ -19,13 +18,8 @@ class ConversationalDeployment extends EventEmitter {
       logger: this.logger
     });
     
-    // Initialize agent orchestrator
-    this.orchestrator = new AgentOrchestrator({
-      apiKeys: options.apiKeys,
-      locusApiKey: options.locusApiKey,
-      locusApiUrl: options.locusApiUrl,
-      logger: this.logger
-    });
+    // Initialize agent orchestrator (injected via options)
+    this.orchestrator = options.orchestrator;
     
     // Conversation state management
     this.conversations = new Map();
@@ -517,20 +511,22 @@ class ConversationalDeployment extends EventEmitter {
   }
 
   setupEventHandlers() {
-    // Forward orchestrator events with conversational context
-    this.orchestrator.on('workflow:completed', (data) => {
-      this.emit('deployment:completed', {
-        ...data,
-        message: '🎉 Deployment completed successfully! Your application is now live.'
+    // Forward orchestrator events with conversational context (if orchestrator is available)
+    if (this.orchestrator) {
+      this.orchestrator.on('workflow:completed', (data) => {
+        this.emit('deployment:completed', {
+          ...data,
+          message: '🎉 Deployment completed successfully! Your application is now live.'
+        });
       });
-    });
-    
-    this.orchestrator.on('workflow:failed', (data) => {
-      this.emit('deployment:failed', {
-        ...data,
-        message: '❌ Deployment failed, but I can help you fix this issue.'
+      
+      this.orchestrator.on('workflow:failed', (data) => {
+        this.emit('deployment:failed', {
+          ...data,
+          message: '❌ Deployment failed, but I can help you fix this issue.'
+        });
       });
-    });
+    }
     
     // NLP parser events
     this.nlpParser.on('parsing:completed', (data) => {
@@ -572,4 +568,4 @@ class ConversationalDeployment extends EventEmitter {
   }
 }
 
-module.exports = { ConversationalDeployment };
+export { ConversationalDeployment };

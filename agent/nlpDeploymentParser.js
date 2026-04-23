@@ -4,7 +4,7 @@
  * Makes deployment feel like talking to an AI DevOps engineer
  */
 
-const EventEmitter = require('events');
+import { EventEmitter } from 'events';
 
 class NLPDeploymentParser extends EventEmitter {
   constructor(options = {}) {
@@ -841,4 +841,4 @@ class NLPParsingError extends Error {
   }
 }
 
-module.exports = { NLPDeploymentParser, NLPParsingError };
+export { NLPDeploymentParser, NLPParsingError };

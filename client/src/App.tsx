@@ -11,6 +11,7 @@ import Auth from "@/pages/auth";
 import Welcome from "@/pages/welcome";
 import Dashboard from "@/pages/dashboard";
 import AdminPage from "@/pages/admin";
+import BrainPage from "@/pages/brain";
 
 function Router() {
   return (
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/admin" component={AdminPage} />
       <Route path="/welcome" component={Welcome} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/brain" component={BrainPage} />
       <Route component={NotFound} />
     </Switch>
   );
