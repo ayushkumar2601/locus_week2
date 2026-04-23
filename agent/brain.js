@@ -7,6 +7,7 @@
 import { EventEmitter } from 'events';
 import { NLPDeploymentParser } from './nlpDeploymentParser.js';
 import { ConversationalDeployment } from './conversationalDeployment.js';
+import { AgentMemory } from './memory.js';
 
 class AgentBrain extends EventEmitter {
   constructor(options = {}) {
@@ -20,6 +21,7 @@ class AgentBrain extends EventEmitter {
     this.orchestrator = options.orchestrator;
     this.nlpParser = new NLPDeploymentParser(options);
     this.conversationalDeployment = new ConversationalDeployment(options);
+    this.memory = new AgentMemory({ logger: this.logger });
     
     // Memory and state management
     this.memory = {
@@ -134,6 +136,9 @@ class AgentBrain extends EventEmitter {
       this.addToMemory('observations', observation);
       this.systemState.lastObservation = observation;
       
+      // Emit thinking log
+      this.emitThinkingLog('OBSERVE', `System scan: ${observation.deployments.length} deployments, ${observation.errors.length} errors, ${observation.userInputs.length} inputs`);
+      
       // Emit observation event
       this.emit('brain:observation', observation);
       this.logger.debug('👁️ Agent observation completed', {
@@ -147,6 +152,7 @@ class AgentBrain extends EventEmitter {
       
     } catch (error) {
       this.logger.error('❌ Observation failed:', error);
+      this.emitThinkingLog('ERROR', `Observation failed: ${error.message}`);
       return {
         timestamp: Date.now(),
         error: error.message,
@@ -313,6 +319,9 @@ class AgentBrain extends EventEmitter {
       
       // Store thought in memory
       this.addToMemory('thoughts', thought);
+      
+      // Emit thinking log
+      this.emitThinkingLog('THINK', `${reasoning[0] || 'Processing system state'} (confidence: ${(thought.confidence * 100).toFixed(0)}%)`);
       
       // Emit thinking event
       this.emit('brain:thought', thought);
@@ -544,6 +553,10 @@ Format as JSON array of reasoning strings.
       // Store decision in memory
       this.addToMemory('decisions', decision);
       
+      // Emit thinking log
+      const actionTypes = decision.actions.map(a => a.type).join(', ');
+      this.emitThinkingLog('DECIDE', `Planning actions: ${actionTypes || 'monitor'} (priority: ${decision.priority})`);
+      
       // Emit decision event
       this.emit('brain:decision', decision);
       this.logger.debug('🎯 Agent decision completed', {
@@ -716,6 +729,9 @@ Format as JSON array of reasoning strings.
             result: result.status,
             duration: result.duration
           });
+          
+          // Emit thinking log
+          this.emitThinkingLog('ACT', `Executed ${action.type}: ${result.status} (${result.duration}ms)`);
           
         } catch (error) {
           results.push({
@@ -1119,6 +1135,9 @@ Format as JSON array of reasoning strings.
       // Update system state based on learning
       await this.applyLearning(reflection.learning);
       
+      // Emit thinking log
+      this.emitThinkingLog('REFLECT', `Cycle complete: ${reflection.outcomes.successRate.toFixed(0)}% success, ${reflection.learning.length} insights learned`);
+      
       // Emit reflection event
       this.emit('brain:reflection', reflection);
       this.logger.debug('🔄 Agent reflection completed', {
@@ -1427,6 +1446,26 @@ Format as JSON array of reasoning strings.
   adjustActionPriorities(insight, direction) {
     // Placeholder - would adjust internal action priority weights
     this.logger.debug(`Adjusting action priorities based on learning: ${insight.insight}`);
+  }
+
+  /**
+   * Emit thinking log for real-time dashboard
+   */
+  emitThinkingLog(type, message, data = null) {
+    const logEntry = {
+      type,
+      message,
+      data,
+      timestamp: Date.now()
+    };
+    
+    // Emit to brain event system
+    this.emit('brain:thinking_log', logEntry);
+    
+    // If we have access to the global log system, use it
+    if (global.addAgentLog) {
+      global.addAgentLog(type, message, data);
+    }
   }
 }
 

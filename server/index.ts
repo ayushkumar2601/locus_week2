@@ -5,8 +5,10 @@ import adminRoutes from "./adminRoutes";
 import nlpDeploymentRoutes from "./nlpDeploymentAPI";
 import githubWebhookRoutes from "./githubWebhook";
 import brainAPIRoutes, { initializeBrainAPI } from "./brainAPI";
+import agentLogsRoutes, { initializeAgentLogs, addAgentLog } from "./agentLogsAPI";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { Server as SocketIOServer } from "socket.io";
 import { setupTerminalWebSocket } from "./terminal";
 import { AgentOrchestrator } from "../agent/index.js";
 
@@ -33,6 +35,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/nlp", nlpDeploymentRoutes);
 app.use("/api/github", githubWebhookRoutes);
 app.use("/api/brain", brainAPIRoutes);
+app.use("/api/agent", agentLogsRoutes);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -111,10 +114,25 @@ app.use((req, res, next) => {
     }
   });
 
+  // Initialize Socket.IO
+  const io = new SocketIOServer(httpServer, {
+    cors: {
+      origin: process.env.NODE_ENV === "development" ? "http://localhost:5000" : false,
+      methods: ["GET", "POST"]
+    }
+  });
+
   // Initialize brain API with orchestrator
   initializeBrainAPI(orchestrator);
   
+  // Initialize agent logs with Socket.IO
+  initializeAgentLogs(io);
+  
+  // Make addAgentLog globally available for the brain
+  (global as any).addAgentLog = addAgentLog;
+  
   log('🧠 Agent Brain initialized and ready for API control');
+  log('📡 Socket.IO initialized for real-time agent logs');
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
